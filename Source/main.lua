@@ -8,7 +8,7 @@ local screenWidth = 400
 local screenHeight = 240
 local playerRotation = 0 
 local rotationSpeed = 4
-local rotationLimit = 40 -- Limite di rotazione a sinistra e destra (gradi)
+local rotationLimit = 40 
 
 -- Configurazione Strada
 local roadScrollOffset = 0
@@ -25,9 +25,20 @@ local enemies = {}
 local spawnTimer = 0
 local spawnRate = 60
 
+-- Suoni
+local sfxLoading = nil
+local sfxShooting = nil
+local sfxDeath = nil
+
 -- Inizializzazione
 function init()
     gfx.setFont(gfx.font.new('font/Asheville-Sans-14-Bold'))
+    
+    -- Caricamento Suoni
+    -- Usiamo fileplayer per caricare i file MP3 (compilati in .pda da pdc)
+    sfxLoading = playdate.sound.fileplayer.new("audio/loading")
+    sfxShooting = playdate.sound.fileplayer.new("audio/shooting")
+    sfxDeath = playdate.sound.fileplayer.new("audio/death")
 end
 
 init()
@@ -35,7 +46,6 @@ init()
 -- Sistema Nemici
 function spawnEnemy()
     local enemy = {}
-    -- Limitiamo lo spawn all'area della strada (±15 gradi)
     enemy.angle = math.random(-15, 15)
     enemy.distance = 1.0  
     enemy.isDead = false
@@ -63,6 +73,8 @@ function updateEnemies()
                     if math.abs(relAngle) < 5 then
                         e.isDead = true
                         e.deathTimer = 10
+                        -- Suono morte
+                        if sfxDeath then sfxDeath:play() end
                     end
                 end
             end
@@ -81,8 +93,6 @@ function drawEnemies()
     
     for _, e in ipairs(enemies) do
         local relAngle = (e.angle - playerRotation)
-        
-        -- Rispetto ai limiti di rotazione, relAngle sarà sempre nel campo visivo
         local x = 200 + relAngle * 6
         local scale = 1.0 - e.distance
         local y = horizonY + (scale * scale) * (groundY - horizonY)
@@ -111,7 +121,6 @@ function drawDesert()
     gfx.setDitherPattern(0.5, gfx.image.kDitherTypeBayer4x4)
     gfx.fillRect(0, 120, screenWidth, 120)
     
-    -- Montagne (Orizzonte)
     local numMountains = 12
     for i = 0, numMountains do
         local xPos = (i * 150 - playerRotation * 2) % (numMountains * 150)
@@ -124,9 +133,7 @@ function drawDesert()
 end
 
 function drawRoad()
-    -- La strada è ora fissa a 0 gradi rispetto al suo asse
     local relX = (0 - playerRotation)
-    
     local centerX = 200 + relX * 5
     local horizonY = 120
     local groundY = 240
@@ -187,15 +194,28 @@ function drawCrosshair()
     gfx.drawCircleAtPoint(cx, cy, 2)
 end
 
+function updateWeaponState(newState)
+    if weaponState == newState then return end
+    
+    local oldState = weaponState
+    weaponState = newState
+    
+    -- Gestione Suoni
+    if oldState == "winding" and sfxLoading then sfxLoading:stop() end
+    if oldState == "firing" and sfxShooting then sfxShooting:stop() end
+    
+    if newState == "winding" and sfxLoading then sfxLoading:play(0) end
+    if newState == "firing" and sfxShooting then sfxShooting:play(0) end
+end
+
 function playdate.update()
-    -- Input Rotazione Limitata
+    -- Input
     if playdate.buttonIsPressed(playdate.kButtonLeft) then 
         playerRotation -= rotationSpeed 
     elseif playdate.buttonIsPressed(playdate.kButtonRight) then 
         playerRotation += rotationSpeed 
     end
     
-    -- Clamp rotazione
     if playerRotation < -rotationLimit then playerRotation = -rotationLimit end
     if playerRotation > rotationLimit then playerRotation = rotationLimit end
     
@@ -203,10 +223,16 @@ function playdate.update()
     
     local change = playdate.getCrankChange()
     if math.abs(change) > 1 then
-        if windUpTime < maxWindUp then weaponState = "winding"; windUpTime += 1 else weaponState = "firing" end
+        if windUpTime < maxWindUp then 
+            updateWeaponState("winding")
+            windUpTime += 1 
+        else 
+            updateWeaponState("firing")
+        end
         firingFrame += math.floor(math.abs(change) / 2) + 1
     else
-        weaponState = "idle"; windUpTime = math.max(0, windUpTime - 2)
+        updateWeaponState("idle")
+        windUpTime = math.max(0, windUpTime - 2)
     end
     
     -- Update Nemici

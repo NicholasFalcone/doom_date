@@ -9,6 +9,7 @@ local screenHeight = 240
 local playerRotation = 0 
 local rotationSpeed = 4
 local rotationLimit = 40 
+local useAccelerometer = false
 
 -- Configurazione Strada
 local roadScrollOffset = 0
@@ -65,6 +66,13 @@ function init()
         local w, h = backgroundImage:getSize()
         bgLoadError = "Caricata: " .. w .. "x" .. h
     end
+
+    -- Accelerometro
+    playdate.startAccelerometer()
+    local menu = playdate.getSystemMenu()
+    menu:addCheckmarkMenuItem("Tilt Controls", useAccelerometer, function(value)
+        useAccelerometer = value
+    end)
 end
 
 init()
@@ -362,10 +370,19 @@ end
 
 function playdate.update()
     -- Input
-    if playdate.buttonIsPressed(playdate.kButtonLeft) then 
-        playerRotation -= rotationSpeed 
-    elseif playdate.buttonIsPressed(playdate.kButtonRight) then 
-        playerRotation += rotationSpeed 
+
+    if useAccelerometer then
+        local ax, ay, az = playdate.readAccelerometer()
+        if math.abs(ax) > 0.05 then
+            -- Moltiplicatore 20.0 per rendere la rotazione sensibile
+            playerRotation += ax * rotationSpeed * 5.0
+        end
+    else
+        if playdate.buttonIsPressed(playdate.kButtonLeft) then 
+            playerRotation -= rotationSpeed 
+        elseif playdate.buttonIsPressed(playdate.kButtonRight) then 
+            playerRotation += rotationSpeed 
+        end
     end
     
     if playerRotation < -rotationLimit then playerRotation = -rotationLimit end

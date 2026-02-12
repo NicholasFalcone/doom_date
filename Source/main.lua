@@ -25,20 +25,30 @@ local enemies = {}
 local spawnTimer = 0
 local spawnRate = 60
 
--- Suoni
+-- Suoni e Asset
 local sfxLoading = nil
 local sfxShooting = nil
 local sfxDeath = nil
+local bgLoadError = nil
 
 -- Inizializzazione
 function init()
     gfx.setFont(gfx.font.new('font/Asheville-Sans-14-Bold'))
     
     -- Caricamento Suoni
-    -- Usiamo fileplayer per caricare i file MP3 (compilati in .pda da pdc)
     sfxLoading = playdate.sound.fileplayer.new("audio/loading")
     sfxShooting = playdate.sound.fileplayer.new("audio/shooting")
     sfxDeath = playdate.sound.fileplayer.new("audio/death")
+    
+    -- Caricamento Immagine di Sfondo (versione 500px)
+    backgroundImage = gfx.image.new("background_500")
+    
+    if not backgroundImage then
+        bgLoadError = "Img non caricata!"
+    else
+        local w, h = backgroundImage:getSize()
+        bgLoadError = "Caricata: " .. w .. "x" .. h
+    end
 end
 
 init()
@@ -114,21 +124,29 @@ function drawEnemies()
     end
 end
 
--- Ambientazione
+-- Funzione per disegnare il deserto con immagine di sfondo
 function drawDesert()
-    gfx.setColor(gfx.kColorWhite)
-    gfx.fillRect(0, 0, screenWidth, 120)
-    gfx.setDitherPattern(0.5, gfx.image.kDitherTypeBayer4x4)
-    gfx.fillRect(0, 120, screenWidth, 120)
+    -- Pulizia (Bianco)
+    gfx.setColor(gfx.kColorBlack)
+    gfx.fillRect(0, 0, screenWidth, screenHeight)
     
-    local numMountains = 12
-    for i = 0, numMountains do
-        local xPos = (i * 150 - playerRotation * 2) % (numMountains * 150)
-        local finalX = xPos - 100 
-        if finalX < screenWidth then
-             gfx.setColor(gfx.kColorBlack)
-             gfx.fillTriangle(finalX, 120, finalX + 50, 80, finalX + 100, 120)
-        end
+    -- Disegno Immagine di Sfondo
+    if backgroundImage then
+        local bgW, bgH = backgroundImage:getSize()
+        
+        -- Calcoliamo l'offset orizzontale (Parallasse)
+        -- Con un'immagine da 500px e schermo da 400px, abbiamo 100px di margine totale.
+        -- ±40 gradi * 1.25 = ±50px di scorrimento, perfetto per coprire tutto.
+        local bgX = (screenWidth / 2) - (bgW / 2) - (playerRotation * 1.25)
+        
+        -- Centramento verticale sull'orizzonte
+        local bgY = 120 - (bgH / 2) * 1.5
+        
+        backgroundImage:draw(bgX, bgY)
+    else
+        -- Fallback: Sabbia ditherizzata
+        gfx.setDitherPattern(0.5, gfx.image.kDitherTypeBayer4x4)
+        gfx.fillRect(0, 120, screenWidth, 120)
     end
 end
 
@@ -141,13 +159,70 @@ function drawRoad()
     local topW = 30
     local botW = 400
     gfx.fillPolygon(centerX - topW, horizonY, centerX + topW, horizonY, centerX + botW, groundY, centerX - botW, groundY)
+    
+    -- Disegna linee stradali e cactus integrati
     gfx.setColor(gfx.kColorWhite)
     for i = 0, 10 do
         local lineZ = (i * 0.2 + (roadScrollOffset / 100)) % 1.0
         local y = horizonY + (lineZ * lineZ) * (groundY - horizonY)
         local w = topW + (lineZ * lineZ) * (botW - topW)
+        
+        -- Disegna linea stradale
         gfx.drawLine(centerX - w, y, centerX + w, y)
+        
+        -- Disegna cactus ogni 10 tiles
+        if i % 10 == 0 and i > 0 then
+            -- Dimensione del cactus basata sulla profondità
+            local cactusHeight = 10 + lineZ * 40
+            local cactusWidth = 3 + lineZ * 8
+            
+            -- Calcola valore di dithering (vicino = solido, lontano = trasparente)
+            local ditherValue = 1.0 - (lineZ * 0.7)
+            
+            -- Posiziona i cactus sui bordi della strada
+            local leftCactusX = centerX - w - cactusWidth * 2
+            local rightCactusX = centerX + w + cactusWidth * 2
+            
+            -- Disegna cactus sinistro
+            if leftCactusX > 0 and leftCactusX < screenWidth then
+                drawSingleCactus(leftCactusX, y, cactusWidth, cactusHeight, ditherValue)
+            end
+            
+            -- Disegna cactus destro
+            if rightCactusX > 0 and rightCactusX < screenWidth then
+                drawSingleCactus(rightCactusX, y, cactusWidth, cactusHeight, ditherValue)
+            end
+        end
     end
+end
+
+
+function drawSingleCactus(x, y, w, h, ditherValue)
+    -- Applica dithering per l'effetto di dissolvenza
+    if ditherValue < 0.9 then
+        gfx.setDitherPattern(ditherValue, gfx.image.kDitherTypeBayer8x8)
+    else
+        gfx.setColor(gfx.kColorWhite)
+    end
+    
+    -- Tronco principale
+    gfx.fillRect(x - w/2, y - h, w, h)
+    
+    -- Braccia (se il cactus è abbastanza grande)
+    if h > 20 then
+        -- Braccio sinistro
+        local armY = y - h * 0.6
+        local armLen = w * 1.5
+        gfx.fillRect(x - w/2 - armLen, armY, armLen, w * 0.6)
+        gfx.fillRect(x - w/2 - armLen, armY - h * 0.2, w * 0.6, h * 0.2)
+        
+        -- Braccio destro
+        gfx.fillRect(x + w/2, armY, armLen, w * 0.6)
+        gfx.fillRect(x + w/2 + armLen - w * 0.6, armY - h * 0.3, w * 0.6, h * 0.3)
+    end
+    
+    -- Ripristina colore solido
+    gfx.setColor(gfx.kColorWhite)
 end
 
 -- Weapon & UI
@@ -188,7 +263,7 @@ end
 function drawCrosshair()
     local cx, cy = screenWidth / 2, screenHeight / 2
     gfx.setLineWidth(1)
-    gfx.setColor(gfx.kColorBlack)
+    gfx.setColor(gfx.kColorWhite)
     gfx.drawLine(cx - 10, cy, cx + 10, cy)
     gfx.drawLine(cx, cy - 10, cx, cy + 10)
     gfx.drawCircleAtPoint(cx, cy, 2)

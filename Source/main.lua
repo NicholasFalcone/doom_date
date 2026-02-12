@@ -19,6 +19,8 @@ local weaponState = "idle"
 local windUpTime = 0
 local maxWindUp = 25 
 local firingFrame = 0
+local cooldownTime = 0
+local maxCooldown = 30
 
 -- Configurazione Nemici
 local enemies = {}
@@ -35,6 +37,8 @@ local bgLoadError = nil
 function init()
     gfx.setFont(gfx.font.new('font/Asheville-Sans-14-Bold'))
     
+    cooldownTime = maxCooldown
+
     -- Caricamento Suoni
     sfxLoading = playdate.sound.fileplayer.new("audio/loading")
     sfxShooting = playdate.sound.fileplayer.new("audio/shooting")
@@ -59,7 +63,10 @@ function spawnEnemy()
     enemy.angle = math.random(-15, 15)
     enemy.distance = 1.0  
     enemy.isDead = false
+    enemy.isHitted = false
+    enemy.hitTimer = 0  -- Timer per l'effetto hit
     enemy.deathTimer = 0
+    enemy.health = 3  -- Richiede 3 colpi per morire
     table.insert(enemies, enemy)
 end
 
@@ -73,6 +80,14 @@ function updateEnemies()
     for i = #enemies, 1, -1 do
         local e = enemies[i]
         
+        -- Countdown del timer di hit
+        if e.hitTimer > 0 then
+            e.hitTimer -= 1
+            if e.hitTimer <= 0 then
+                e.isHitted = false
+            end
+        end
+        
         if not e.isDead then
             e.distance -= 0.005 
             if e.distance <= 0 then
@@ -81,10 +96,19 @@ function updateEnemies()
                 if weaponState == "firing" then
                     local relAngle = (e.angle - playerRotation)
                     if math.abs(relAngle) < 5 then
-                        e.isDead = true
-                        e.deathTimer = 10
-                        -- Suono morte
-                        if sfxDeath then sfxDeath:play() end
+                        if e.isHitted == false then
+                            e.isHitted = true
+                            e.hitTimer = 10  -- Mostra l'effetto per 10 frame (~0.16 sec)
+                            e.health -= 1  -- Riduce la salute di 1
+                            
+                            -- Muore solo quando la salute arriva a 0
+                            if e.health <= 0 then
+                                e.isDead = true
+                                e.deathTimer = 10
+                                -- Suono morte
+                                if sfxDeath then sfxDeath:play() end
+                            end
+                        end
                     end
                 end
             end
@@ -113,10 +137,42 @@ function drawEnemies()
             gfx.fillCircleAtPoint(x, y - size/2, size * 1.5)
             gfx.setColor(gfx.kColorWhite)
             gfx.fillCircleAtPoint(x, y - size/2, size)
+        elseif e.isHitted then
+            -- Effetto sangue (splash)
+            gfx.setColor(gfx.kColorWhite)
+            -- Linee radiali (schizzi)
+            for i = 0, 7 do
+                local angle = math.rad(i * 45 + math.random(-10, 10))
+                local len = size * 0.3 + math.random(0, math.max(1, math.floor(size * 0.2)))
+                local startX = x + math.cos(angle) * size * 0.3
+                local startY = (y - size/2) + math.sin(angle) * size * 0.3
+                local endX = startX + math.cos(angle) * len
+                local endY = startY + math.sin(angle) * len
+                gfx.drawLine(startX, startY, endX, endY)
+            end
+            -- Gocce sparse
+            for i = 1, 5 do
+                local maxOffset = math.max(1, math.floor(size/2))
+                local dropX = x + math.random(-maxOffset, maxOffset)
+                local dropY = (y - size/2) + math.random(-maxOffset, maxOffset)
+                gfx.fillCircleAtPoint(dropX, dropY, 1 + math.random(0, 2))
+            end
+            -- e.isHitted = false
         else
+            -- Outline thickness
+            local outlineW = 1
+            
+            -- Disegno outline bianco (più grande)
+            gfx.setColor(gfx.kColorWhite)
+            gfx.fillRect(x - size/4 - outlineW, y - size - outlineW, size/2 + outlineW*2, size + outlineW)
+            gfx.fillRect(x - size/2 - outlineW, y - size * 0.7 - outlineW, size + outlineW*2, size/5 + outlineW*2)
+            
+            -- Disegno corpo nero (normale)
             gfx.setColor(gfx.kColorBlack)
             gfx.fillRect(x - size/4, y - size, size/2, size)
             gfx.fillRect(x - size/2, y - size * 0.7, size, size/5)
+            
+            -- Disegno occhi bianchi
             gfx.setColor(gfx.kColorWhite)
             gfx.fillCircleAtPoint(x - size/8, y - size * 0.8, size/10)
             gfx.fillCircleAtPoint(x + size/8, y - size * 0.8, size/10)
@@ -195,7 +251,6 @@ function drawRoad()
         end
     end
 end
-
 
 function drawSingleCactus(x, y, w, h, ditherValue)
     -- Applica dithering per l'effetto di dissolvenza
@@ -296,13 +351,20 @@ function playdate.update()
     
     roadScrollOffset = (roadScrollOffset - roadSpeed) % 100
     
+
+    
     local change = playdate.getCrankChange()
     if math.abs(change) > 1 then
         if windUpTime < maxWindUp then 
             updateWeaponState("winding")
             windUpTime += 1 
         else 
-            updateWeaponState("firing")
+            if cooldownTime <= 0 then
+                updateWeaponState("firing")
+                cooldownTime = maxCooldown
+            else
+                cooldownTime -= 1 
+            end
         end
         firingFrame += math.floor(math.abs(change) / 2) + 1
     else

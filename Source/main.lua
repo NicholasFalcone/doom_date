@@ -31,7 +31,11 @@ local spawnRate = 60
 local sfxLoading = nil
 local sfxShooting = nil
 local sfxDeath = nil
+local themeMusic = nil
 local bgLoadError = nil
+
+-- Sistema Kill Counter per pitch musica
+local killCount = 0
 
 -- Inizializzazione
 function init()
@@ -43,6 +47,14 @@ function init()
     sfxLoading = playdate.sound.fileplayer.new("audio/loading")
     sfxShooting = playdate.sound.fileplayer.new("audio/shooting")
     sfxDeath = playdate.sound.fileplayer.new("audio/death")
+    
+    -- Caricamento e avvio Theme Music
+    themeMusic = playdate.sound.fileplayer.new("audio/theme_music")
+    if themeMusic then
+        themeMusic:setVolume(0.6)
+        themeMusic:play(0)  -- 0 = loop infinito
+        themeMusic:setRate(0.5)  -- Inizia con pitch molto basso (metà velocità)
+    end
     
     -- Caricamento Immagine di Sfondo (versione 500px)
     backgroundImage = gfx.image.new("background_500")
@@ -105,6 +117,16 @@ function updateEnemies()
                             if e.health <= 0 then
                                 e.isDead = true
                                 e.deathTimer = 10
+                                
+                                -- Incrementa kill count e aggiorna pitch musica
+                                killCount += 1
+                                if themeMusic then
+                                    -- Pitch aumenta da 0.5 (inizio) a 1.5 (max) in base alle kill
+                                    -- Formula: 0.5 + (killCount * 0.05), max 1.5
+                                    local newPitch = math.min(1.5, 0.5 + (killCount * 0.05))
+                                    themeMusic:setRate(newPitch)
+                                end
+                                
                                 -- Suono morte
                                 if sfxDeath then sfxDeath:play() end
                             end
